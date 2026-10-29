@@ -1,0 +1,15 @@
+.env
+github-app.pem
+.discord.key.txt
+state.json
+archive/
+state.tmp
+.ollama.cloud.key.txt
+*.key.txt
+*.pem
+scan_report.md
+scan_*.json
+history.json
+__pycache__/
+.venv/
+edtim-chatbot-devbot.png
