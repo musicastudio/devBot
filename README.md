@@ -109,7 +109,7 @@ devBot was built using [Claude Code](https://claude.com/claude-code). At runtime
 
 ## Credits
 
-Built on [discord.py](https://github.com/Rapptz/discord.py) (MIT) and [cryptography](https://github.com/pyca/cryptography) (Apache 2.0 / BSD).
+Built on [discord.py](https://github.com/Rapptz/discord.py) (MIT) and [cryptography](https://github.com/pyca/cryptography) (Apache 2.0 / BSD). The devBot icon is from [Chatbot icons created by edt.im - Flaticon](https://www.flaticon.com/free-icons/chatbot).
 
 ## Licence
 
