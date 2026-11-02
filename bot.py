@@ -54,7 +54,8 @@ SCRATCHPAD = 1557447421926187118  # where claudeOpus takes work asked for outsid
 # since claudeOpus reading an issue thread would answer a direct tag there as well as devBot's handover of it.
 OPUS_CHANNELS = {1549099992101290114, 1552054486720315513, 1552054514809315439, SCRATCHPAD}
 AGENT_USERS = {779115813805490189, 1173170271599988778}  # James and rgwan, who claudeOpus takes work from
-AGENT_ROLES = {1551612933157556264, 1555639415890514010}  # and the Team and Contributors roles, which it takes work from too
+TEAM = 1551612933157556264  # the Team role, which can also force a pull request's merge
+AGENT_ROLES = {TEAM, 1555639415890514010}  # and the Team and Contributors roles, which it takes work from too
 CATEGORIES = ["Engine", "Effects", "Presets", "UI", "MIDI", "Host/DAW", "Platform", "Docs", "Other"]
 IMPORTANCE = ["Critical", "High", "Medium", "Low"]
 POLL = 300  # seconds between GitHub checks when gh-events is quiet
@@ -65,6 +66,7 @@ CLOSE = re.compile(r"^close\b", re.I)  # `@devBot close`
 ADD = re.compile(r"^add\s+(images?|pictures?|screenshots?|files?)\b", re.I)  # `@devBot add image`
 DELETE = re.compile(r"^delete\b", re.I)  # `@devBot delete`
 APPROVE = re.compile(r"^approved?\b", re.I)  # `@devBot approve`, in a pull request's thread
+FORCE = re.compile(r"^force[\s-]+(approve|merge)\b", re.I)  # `@devBot force approve <reason>`
 IMG = re.compile(r'<img[^>]*\bsrc="([^"]+)"|!\[[^\]]*\]\((\S+?)\)')  # an image in an issue body, as HTML or markdown
 # devBot comments on GitHub with James's token, so its own comments are told apart by this marker, and by how the
 # ones it wrote before the marker open
@@ -994,9 +996,20 @@ def team(member):
     return member.id in AGENT_USERS or any(r.id in AGENT_ROLES for r in getattr(member, "roles", []))
 
 
-async def approve_command(m):
+async def force_command(m):
+    """`@devBot force approve <reason>` in a pull request's thread: the Team role merges it now, saying why."""
+    reason = FORCE.sub("", MENTION.sub("", m.content).strip()).strip()
+    if m.author.id not in AGENT_USERS and not any(r.id == TEAM for r in getattr(m.author, "roles", [])):
+        return "Only the Team role can force a merge. `@devBot approve` adds your approval."
+    if not reason:
+        return "Say why, like `@devBot force approve the release needs it tonight`."
+    return await approve_command(m, reason[:500])
+
+
+async def approve_command(m, forced=""):
     """`@devBot approve` in a pull request's thread. Approvals hold for the branch's latest commit, and at two from
-    different people in the Team and Contributors roles devBot merges it."""
+    different people in the Team and Contributors roles devBot merges it. `forced`, a reason from force_command,
+    merges it at once."""
     key = thread_pull(m.channel.id)
     if not key:
         return "Approve a pull request in its thread in the pull-requests forum."
@@ -1011,27 +1024,32 @@ async def approve_command(m):
         if info["sha"] != pr["head"]["sha"]:  # pushed to since the sync saw it, so earlier approvals were for other code
             info.update(sha=pr["head"]["sha"], approvals={})
         info["approvals"] = authored(pr) | info["approvals"]
-        if str(m.author.id) not in info["approvals"]:
+        if forced:
+            note = f"Force approved on Discord by {who} ({m.jump_url}) at {info['sha'][:7]}: {forced}"
+        elif str(m.author.id) not in info["approvals"]:
             info["approvals"][str(m.author.id)] = who
-            await gh("POST", f"/repos/{repo}/issues/{n}/comments", json={"body": (
-                f"Approved on Discord by {who} ({m.jump_url}), {len(info['approvals'])} of {APPROVALS}, "
-                f"at {info['sha'][:7]}.\n{MARK}")})
+            note = f"Approved on Discord by {who} ({m.jump_url}), {len(info['approvals'])} of {APPROVALS}, at {info['sha'][:7]}."
+        else:
+            note = ""
+        if note:
+            await gh("POST", f"/repos/{repo}/issues/{n}/comments", json={"body": f"{note}\n{MARK}"})
         save()
         await show_pull(key, pr)
         names = " and ".join(info["approvals"].values())
-        if len(info["approvals"]) < APPROVALS:
+        if len(info["approvals"]) < APPROVALS and not forced:
             return f"Approved, {len(info['approvals'])} of {APPROVALS}."
+        done = f"force approved by {who}: {forced}" if forced else f"approved by {names}"
         try:  # the sha makes GitHub refuse if the branch moved after the approvals
             await gh("PUT", f"/repos/{repo}/pulls/{n}/merge", json={
-                "merge_method": "merge", "sha": info["sha"], "commit_message": f"{pr['title']}\n\nApproved on Discord by {names}."})
+                "merge_method": "merge", "sha": info["sha"], "commit_message": f"{pr['title']}\n\n{done[0].upper()}{done[1:]} (on Discord)."})
         except RuntimeError as e:
             said = re.search(r'"message":\s*"([^"]+)"', str(e))  # GitHub's reason, like "Pull Request is not mergeable"
             why = (said.group(1) if said else str(e))[:300]
-            await log(f"**{key}** approved by {names}, but GitHub refused the merge: {why} {m.jump_url}")
-            return f"Approved by {names}, but GitHub won't merge it: {why}\nOnce that's fixed, `@devBot approve` tries again."
-    await log(f"**{key}** merged by devBot, approved by {names} {m.jump_url}")
+            await log(f"**{key}** {done}, but GitHub refused the merge: {why} {m.jump_url}")
+            return f"**{key}** {done}, but GitHub won't merge it: {why}\nOnce that's fixed, `@devBot {'force ' * bool(forced)}approve` tries again."
+    await log(f"**{key}** merged by devBot, {done} {m.jump_url}")
     wake.set()  # the sync backs the thread up and deletes it
-    return f"Merged **{key}**, approved by {names}."
+    return f"Merged **{key}**, {done}."
 
 
 def named_issue(note, here):
@@ -1415,6 +1433,8 @@ async def command(m):
         return await delete_command(m)
     if APPROVE.match(said):
         return await approve_command(m)
+    if FORCE.match(said):
+        return await force_command(m)
     here = thread_issue(m.channel.id)
     key = named_issue(said, here) or here
     async with m.channel.typing():

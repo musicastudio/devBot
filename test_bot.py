@@ -143,6 +143,21 @@ assert asyncio.run(bot.approve_command(by(1, role))) == "Approved, 1 of 2."  # r
 assert asyncio.run(bot.approve_command(by(1, role))) == "Approved, 1 of 2."  # one approval each
 assert asyncio.run(bot.approve_command(by(2, role))) == "Merged **FSVR#99**, approved by u1 and u2."
 assert [c for c in calls if c[0] != "GET"] == [("POST", "comments", None), ("POST", "comments", None), ("PUT", "merge", "new")], calls
+# the Team role can force a merge with a reason, which goes to GitHub and into the merge commit
+bot.state["pulls"]["FSVR#100"] = {"product": "FSVR", "sha": "new", "approvals": {}, "thread": 43}
+calls = []
+async def gh(method, path, **kw):
+    calls.append((method, path.rsplit("/", 1)[1], kw.get("json")))
+    return {"state": "open", "head": {"sha": "new"}, "title": "Hotfix"} if method == "GET" else {}
+bot.gh = gh
+def forcing(text, *roles): return NS(content=f"<@1> {text}", author=NS(id=3, display_name="u3", roles=[NS(id=r) for r in roles]), channel=NS(id=43), jump_url="j")
+contributor = next(r for r in bot.AGENT_ROLES if r != bot.TEAM)
+assert asyncio.run(bot.command(forcing("force approve the release is tonight", contributor))).startswith("Only the Team role")
+assert asyncio.run(bot.command(forcing("force approve", bot.TEAM))).startswith("Say why")
+assert asyncio.run(bot.command(forcing("force approve the release is tonight", bot.TEAM))) == "Merged **FSVR#100**, force approved by u3: the release is tonight."
+assert calls[-1] == ("PUT", "merge", {"merge_method": "merge", "sha": "new",
+                                      "commit_message": "Hotfix\n\nForce approved by u3: the release is tonight (on Discord)."}), calls
+assert calls[-2][2]["body"].startswith("Force approved on Discord by u3 (j) at new: the release is tonight"), calls
 # opening a pull request is its author's approval when the author is on the team, and devBot's are on a branch named for them
 assert bot.authored({"user": {"login": "WouterVanNifterick", "type": "User"}, "head": {"ref": "perf"}}) == {"1375865258169733201": "WouterVanNifterick"}
 assert bot.authored({"user": {"login": "devbot-musicastudio[bot]", "type": "Bot"}, "head": {"ref": "jameshansen/fix"}}) == {"779115813805490189": "jameshansen"}
