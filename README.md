@@ -106,7 +106,7 @@ The first run imports every open issue and records existing commits without anno
 
 ## AI use disclosure
 
-devBot was built using [Claude Code](https://claude.com/claude-code). At runtime it uses `glm-5.3-flash` and `glm-5.3` on Ollama Cloud.
+devBot was built using [Claude Code](https://claude.com/claude-code) with Claude Opus 5.5. At runtime it uses `glm-5.3-flash` and `glm-5.3` on Ollama Cloud.
 
 ## Credits
 
